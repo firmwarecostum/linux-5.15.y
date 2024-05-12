@@ -2145,9 +2145,9 @@ static int __nf_conntrack_update(struct net *net, struct sk_buff *skb,
 				 struct nf_conn *ct,
 				 enum ip_conntrack_info ctinfo)
 {
+	const struct nf_nat_hook *nat_hook;
 	struct nf_conntrack_tuple_hash *h;
 	struct nf_conntrack_tuple tuple;
-	struct nf_nat_hook *nat_hook;
 	unsigned int status;
 	int dataoff;
 	u16 l3num;
@@ -2518,7 +2518,6 @@ static int kill_all(struct nf_conn *i, void *data)
 void nf_conntrack_cleanup_start(void)
 {
 	conntrack_gc_work.exiting = true;
-	RCU_INIT_POINTER(ip_ct_attach, NULL);
 }
 
 void nf_conntrack_cleanup_end(void)
@@ -2738,7 +2737,7 @@ int nf_conntrack_init_start(void)
 
 	if (!nf_conntrack_htable_size) {
 		nf_conntrack_htable_size
-			= (((nr_pages << PAGE_SHIFT) / 2048)
+			= (((nr_pages << PAGE_SHIFT) / 16384)
 			   / sizeof(struct hlist_head));
 		if (BITS_PER_LONG >= 64 &&
 		    nr_pages > (4 * (1024 * 1024 * 1024 / PAGE_SIZE)))
@@ -2834,16 +2833,28 @@ err_cachep:
 	return ret;
 }
 
-static struct nf_ct_hook nf_conntrack_hook = {
+static void nf_conntrack_set_closing(struct nf_conntrack *nfct)
+{
+	struct nf_conn *ct = nf_ct_to_nf_conn(nfct);
+
+	switch (nf_ct_protonum(ct)) {
+	case IPPROTO_TCP:
+		nf_conntrack_tcp_set_closing(ct);
+		break;
+	}
+}
+
+static const struct nf_ct_hook nf_conntrack_hook = {
 	.update		= nf_conntrack_update,
 	.destroy	= nf_ct_destroy,
 	.get_tuple_skb  = nf_conntrack_get_tuple_skb,
+	.attach		= nf_conntrack_attach,
+	.set_closing	= nf_conntrack_set_closing,
+	.confirm	= __nf_conntrack_confirm,
 };
 
 void nf_conntrack_init_end(void)
 {
-	/* For use by REJECT target */
-	RCU_INIT_POINTER(ip_ct_attach, nf_conntrack_attach);
 	RCU_INIT_POINTER(nf_ct_hook, &nf_conntrack_hook);
 }
 
@@ -2888,10 +2899,6 @@ int nf_conntrack_init_net(struct net *net)
 	nf_conntrack_ecache_pernet_init(net);
 	nf_conntrack_helper_pernet_init(net);
 	nf_conntrack_proto_pernet_init(net);
-
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	ATOMIC_INIT_NOTIFIER_HEAD(&net->ct.nf_conntrack_chain);
-#endif
 
 	return 0;
 

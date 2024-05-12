@@ -86,8 +86,6 @@ struct dsa_device_ops {
 	struct sk_buff *(*rcv)(struct sk_buff *skb, struct net_device *dev);
 	void (*flow_dissect)(const struct sk_buff *skb, __be16 *proto,
 			     int *offset);
-	int (*connect)(struct dsa_switch *ds);
-	void (*disconnect)(struct dsa_switch *ds);
 	unsigned int needed_headroom;
 	unsigned int needed_tailroom;
 	const char *name;
@@ -330,8 +328,6 @@ struct dsa_switch {
 	 * structure.
 	 */
 	void *priv;
-
-	void *tagger_data;
 
 	/*
 	 * Configuration data for this switch.
@@ -616,13 +612,6 @@ struct dsa_switch_ops {
 						  enum dsa_tag_protocol mprot);
 	int	(*change_tag_protocol)(struct dsa_switch *ds, int port,
 				       enum dsa_tag_protocol proto);
-	/*
-	 * Method for switch drivers to connect to the tagging protocol driver
-	 * in current use. The switch driver can provide handlers for certain
-	 * types of packets for switch management.
-	 */
-	int	(*connect_tag_protocol)(struct dsa_switch *ds,
-					enum dsa_tag_protocol proto);
 
 	/* Optional switch-wide initialization and destruction methods */
 	int	(*setup)(struct dsa_switch *ds);
@@ -715,6 +704,14 @@ struct dsa_switch_ops {
 	int	(*port_enable)(struct dsa_switch *ds, int port,
 			       struct phy_device *phy);
 	void	(*port_disable)(struct dsa_switch *ds, int port);
+
+	/*
+	 * Compatibility between device trees defining multiple CPU ports and
+	 * drivers which are not OK to use by default the numerically smallest
+	 * CPU port of a switch for its local ports. This can return NULL,
+	 * meaning "don't know/don't care".
+	 */
+	struct dsa_port *(*preferred_default_local_cpu_port)(struct dsa_switch *ds);
 
 	/*
 	 * Port's MAC EEE settings
